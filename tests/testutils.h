@@ -174,3 +174,22 @@ QStringList printModel(const QAbstractItemModel* model)
         if (!QTest::qCompare(actual, expected, #actual, #expected, __FILE__, __LINE__))                                \
             throw std::logic_error("compare failed: " #actual #expected);                                              \
     } while (false)
+
+#define HOTSPOT_TEST_MAIN_IMPL(TestObject, QApp)                                                                       \
+    int main(int argc, char** argv)                                                                                    \
+    {                                                                                                                  \
+        if (!qEnvironmentVariableIsSet("QT_QPA_PLATFORM"))                                                             \
+            qputenv("QT_QPA_PLATFORM", "minimal");                                                                     \
+                                                                                                                       \
+        QApp app(argc, argv);                                                                                          \
+        app.setAttribute(Qt::AA_Use96Dpi, true);                                                                       \
+        app.setAttribute(Qt::AA_UseHighDpiPixmaps);                                                                    \
+        TestObject tc;                                                                                                 \
+        QTEST_SET_MAIN_SOURCE_PATH                                                                                     \
+        QTest::qInit(&tc, argc, argv);                                                                                 \
+        int ret = QTest::qRun();                                                                                       \
+        QTest::qCleanup();                                                                                             \
+        return ret;                                                                                                    \
+    }
+
+#define HOTSPOT_GUITEST_MAIN(TestObject) HOTSPOT_TEST_MAIN_IMPL(TestObject, QGuiApplication)
