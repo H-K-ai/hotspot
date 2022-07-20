@@ -218,7 +218,36 @@ void Settings::loadFromFile()
         setArch(currentConfig.readEntry("arch", ""));
         setObjdump(currentConfig.readEntry("objdump", ""));
     }
-    connect(this, &Settings::lastUsedEnvironmentChanged, [sharedConfig, this](const QString& envName) {
+    connect(this, &Settings::lastUsedEnvironmentChanged, [sharedConfig](const QString& envName) {
         sharedConfig->group("PerfPaths").writeEntry("lastUsed", envName);
     });
+
+    // KConfig doen't support Qt::TextElideMode so we need lookups to save it
+    const static QHash<Qt::TextElideMode, QString> elideLookup = {
+        {Qt::TextElideMode::ElideLeft, QStringLiteral("ElideLeft")},
+        {Qt::TextElideMode::ElideRight, QStringLiteral("ElideRight")}};
+
+    const auto configValue =
+        sharedConfig->group("Flamegraph").readEntry("elideMode", elideLookup[Qt::TextElideMode::ElideRight]);
+
+    auto it = std::find_if(elideLookup.begin(), elideLookup.end(),
+                           [configValue](const QString& value) { return configValue == value; });
+
+    if (it != elideLookup.end()) {
+        m_flamegraphElideMode = it.key();
+    } else {
+        m_flamegraphElideMode = Qt::TextElideMode::ElideRight;
+    }
+
+    connect(this, &Settings::flamegraphTextElideModeChanged, [sharedConfig](const Qt::TextElideMode& mode) {
+        sharedConfig->group("Flamegraph").writeEntry("elideMode", elideLookup[mode]);
+    });
+}
+
+void Settings::setFlamegraphTextElideMode(const Qt::TextElideMode& mode)
+{
+    if (m_flamegraphElideMode != mode) {
+        m_flamegraphElideMode = mode;
+        emit flamegraphTextElideModeChanged(m_flamegraphElideMode);
+    }
 }

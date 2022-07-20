@@ -138,6 +138,11 @@ public:
         return m_lastUsedEnvironment;
     }
 
+    Qt::TextElideMode flamegraphTextElideMode() const
+    {
+        return m_flamegraphElideMode;
+    }
+
     void loadFromFile();
 
 signals:
@@ -157,6 +162,7 @@ signals:
     void objdumpChanged(const QString& objdump);
     void callgraphChanged();
     void lastUsedEnvironmentChanged(const QString& envName);
+    void flamegraphTextElideModeChanged(const Qt::TextElideMode& mode);
 
 public slots:
     void setPrettifySymbols(bool prettifySymbols);
@@ -177,6 +183,7 @@ public slots:
     void setCallgraphColors(const QColor& active, const QColor& inactive);
     void setCostAggregation(CostAggregation costAggregation);
     void setLastUsedEnvironment(const QString& envName);
+    void setFlamegraphTextElideMode(const Qt::TextElideMode& mode);
 
 private:
     Settings() = default;
@@ -187,6 +194,7 @@ private:
     int m_collapseDepth = 1;
     ColorScheme m_colorScheme = ColorScheme::Default;
     CostAggregation m_costAggregation = CostAggregation::BySymbol;
+    Qt::TextElideMode m_flamegraphElideMode;
     QStringList m_userPaths;
     QStringList m_systemPaths;
     QStringList m_debuginfodUrls;

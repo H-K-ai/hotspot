@@ -56,7 +56,8 @@ enum SearchMatchType
 class FrameGraphicsItem : public QGraphicsRectItem
 {
 public:
-    FrameGraphicsItem(const qint64 cost, const Data::Symbol& symbol, FrameGraphicsItem* parent);
+    FrameGraphicsItem(const qint64 cost, const Data::Symbol& symbol, const Qt::TextElideMode& mode,
+                      FrameGraphicsItem* parent);
 
     qint64 cost() const;
     void setCost(qint64 cost);
@@ -79,6 +80,7 @@ private:
     Data::Symbol m_symbol;
     bool m_isHovered;
     bool m_isExternallyHovered;
+    Qt::TextElideMode m_elideMode;
     SearchMatchType m_searchMatch = NoSearch;
 };
 Q_DECLARE_METATYPE(FrameGraphicsItem*)
@@ -86,8 +88,9 @@ Q_DECLARE_METATYPE(FrameGraphicsItem*)
 class FrameGraphicsRootItem : public FrameGraphicsItem
 {
 public:
-    FrameGraphicsRootItem(const qint64 totalCost, Data::Costs::Unit unit, const QString& costName, const QString& label)
-        : FrameGraphicsItem(totalCost, {label, {}}, nullptr)
+    FrameGraphicsRootItem(const qint64 totalCost, Data::Costs::Unit unit, const QString& costName,
+                          const Qt::TextElideMode& mode, const QString& label)
+        : FrameGraphicsItem(totalCost, {label, {}}, mode, nullptr)
         , m_costName(costName)
         , m_unit(unit)
     {
@@ -109,12 +112,14 @@ private:
 
 Q_DECLARE_METATYPE(FrameGraphicsRootItem*)
 
-FrameGraphicsItem::FrameGraphicsItem(const qint64 cost, const Data::Symbol& symbol, FrameGraphicsItem* parent)
+FrameGraphicsItem::FrameGraphicsItem(const qint64 cost, const Data::Symbol& symbol, const Qt::TextElideMode& mode,
+                                     FrameGraphicsItem* parent)
     : QGraphicsRectItem(parent)
     , m_cost(cost)
     , m_symbol(symbol)
     , m_isHovered(false)
     , m_isExternallyHovered(false)
+    , m_elideMode(mode)
 {
     setFlag(QGraphicsItem::ItemIsSelectable);
     setAcceptHoverEvents(true);
@@ -175,13 +180,15 @@ void FrameGraphicsItem::paint(QPainter* painter, const QStyleOptionGraphicsItem*
         painter->setPen(pen);
     }
 
+    QFont font(QStringLiteral("monospace"));
+
     const int height = rect().height();
     const auto binary = Util::formatString(m_symbol.binary);
     const auto symbol = Util::formatSymbol(m_symbol, false);
     const auto symbolText = symbol.isEmpty() ? QObject::tr("?? [%1]").arg(binary) : symbol;
     painter->drawText(margin + rect().x(), rect().y(), width, height,
                       Qt::AlignVCenter | Qt::AlignLeft | Qt::TextSingleLine,
-                      option->fontMetrics.elidedText(symbolText, Qt::ElideRight, width));
+                      QFontMetrics(font).elidedText(symbolText, m_elideMode, width));
 
     if (m_searchMatch == NoMatch) {
         painter->setPen(oldPen);
@@ -430,32 +437,34 @@ FrameGraphicsItem* findItemBySymbol(const QList<QGraphicsItem*>& items, const Da
  */
 template<typename Tree>
 void toGraphicsItems(const Data::Costs& costs, int type, const QVector<Tree>& data, FrameGraphicsItem* parent,
-                     const double costThreshold, const Settings::ColorScheme& colorScheme, bool collapseRecursion)
+                     const double costThreshold, const Settings::ColorScheme& colorScheme, bool collapseRecursion,
+                     const Qt::TextElideMode& mode)
 {
     foreach (const auto& row, data) {
         if (collapseRecursion && !row.symbol.symbol.isEmpty() && row.symbol == parent->symbol()) {
             if (costs.cost(type, row.id) > costThreshold) {
-                toGraphicsItems(costs, type, row.children, parent, costThreshold, colorScheme, collapseRecursion);
+                toGraphicsItems(costs, type, row.children, parent, costThreshold, colorScheme, collapseRecursion, mode);
             }
             continue;
         }
         auto item = findItemBySymbol(parent->childItems(), row.symbol);
         if (!item) {
-            item = new FrameGraphicsItem(costs.cost(type, row.id), row.symbol, parent);
+            item = new FrameGraphicsItem(costs.cost(type, row.id), row.symbol, mode, parent);
             item->setPen(parent->pen());
             item->setBrush(brush(row.symbol, colorScheme));
         } else {
             item->setCost(item->cost() + costs.cost(type, row.id));
         }
         if (item->cost() > costThreshold) {
-            toGraphicsItems(costs, type, row.children, item, costThreshold, colorScheme, collapseRecursion);
+            toGraphicsItems(costs, type, row.children, item, costThreshold, colorScheme, collapseRecursion, mode);
         }
     }
 }
 
 template<typename Tree>
 FrameGraphicsItem* parseData(const Data::Costs& costs, int type, const QVector<Tree>& topDownData, double costThreshold,
-                             const Settings::ColorScheme& colorScheme, bool collapseRecursion)
+                             const Settings::ColorScheme& colorScheme, bool collapseRecursion,
+                             const Qt::TextElideMode& mode)
 {
     const auto totalCost = costs.totalCost(type);
 
@@ -463,11 +472,11 @@ FrameGraphicsItem* parseData(const Data::Costs& costs, int type, const QVector<T
     const QPen pen(scheme.foreground().color());
 
     QString label = i18n("%1 aggregated %2 cost in total", costs.formatCost(type, totalCost), costs.typeName(type));
-    auto rootItem = new FrameGraphicsRootItem(totalCost, costs.unit(type), costs.typeName(type), label);
+    auto rootItem = new FrameGraphicsRootItem(totalCost, costs.unit(type), costs.typeName(type), mode, label);
     rootItem->setBrush(scheme.background());
     rootItem->setPen(pen);
     toGraphicsItems(costs, type, topDownData, rootItem, static_cast<double>(totalCost) * costThreshold / 100.,
-                    colorScheme, collapseRecursion);
+                    colorScheme, collapseRecursion, mode);
     return rootItem;
 }
 
@@ -737,6 +746,10 @@ FlameGraph::FlameGraph(QWidget* parent, Qt::WindowFlags flags)
             setColorScheme(Settings::ColorScheme::System);
         }
     });
+
+    connect(Settings::instance(), &Settings::flamegraphTextElideModeChanged, this, [this] {
+
+    });
 }
 
 FlameGraph::~FlameGraph() = default;
@@ -936,18 +949,19 @@ void FlameGraph::showData()
     auto type = m_costSource->currentData().value<int>();
     auto threshold = m_costThreshold;
     const auto colorScheme = Settings::instance()->colorScheme();
-    stream() << make_job(
-        [showBottomUpData, bottomUpData, topDownData, type, threshold, colorScheme, collapseRecursion, this]() {
-            FrameGraphicsItem* parsedData = nullptr;
-            if (showBottomUpData) {
-                parsedData = parseData(bottomUpData.costs, type, bottomUpData.root.children, threshold, colorScheme,
-                                       collapseRecursion);
-            } else {
-                parsedData = parseData(topDownData.inclusiveCosts, type, topDownData.root.children, threshold,
-                                       colorScheme, collapseRecursion);
-            }
-            QMetaObject::invokeMethod(this, "setData", Qt::QueuedConnection, Q_ARG(FrameGraphicsItem*, parsedData));
-        });
+    const auto elideMode = Settings::instance()->flamegraphTextElideMode();
+    stream() << make_job([showBottomUpData, bottomUpData, topDownData, type, threshold, colorScheme, collapseRecursion,
+                          elideMode, this]() {
+        FrameGraphicsItem* parsedData = nullptr;
+        if (showBottomUpData) {
+            parsedData = parseData(bottomUpData.costs, type, bottomUpData.root.children, threshold, colorScheme,
+                                   collapseRecursion, elideMode);
+        } else {
+            parsedData = parseData(topDownData.inclusiveCosts, type, topDownData.root.children, threshold, colorScheme,
+                                   collapseRecursion, elideMode);
+        }
+        QMetaObject::invokeMethod(this, "setData", Qt::QueuedConnection, Q_ARG(FrameGraphicsItem*, parsedData));
+    });
     updateNavigationActions();
 }
 

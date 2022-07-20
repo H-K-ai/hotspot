@@ -243,6 +243,14 @@ void SettingsDialog::addFlamegraphPage()
         flamegraphPage->systemPaths->insertStringList(Settings::instance()->systemPaths());
     });
 
+    flamegraphPage->elideModeComboBox->insertItem(0, tr("Right"), QVariant::fromValue(Qt::TextElideMode::ElideRight));
+    flamegraphPage->elideModeComboBox->insertItem(1, tr("Left"), QVariant::fromValue(Qt::TextElideMode::ElideLeft));
+
+    connect(flamegraphPage->elideModeComboBox, qOverload<int>(&QComboBox::currentIndexChanged), [this] {
+        Settings::instance()->setFlamegraphTextElideMode(
+            flamegraphPage->elideModeComboBox->currentData().value<Qt::TextElideMode>());
+    });
+
     connect(buttonBox(), &QDialogButtonBox::accepted, this, [this] {
         Settings::instance()->setPaths(flamegraphPage->userPaths->items(), flamegraphPage->systemPaths->items());
     });
